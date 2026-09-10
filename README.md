@@ -139,7 +139,11 @@ mysqlpeek is read-only, enforced in three independent layers:
    Multi-statement execution is off at the protocol level, so `SELECT 1; DROP …` is a
    syntax error to the server.
 3. **Database grants** — connect as a user with only `SELECT`. This is the layer that cannot
-   be argued with, and the one you should not skip:
+   be argued with, and the one you should not skip. It is also the only layer that stops
+   server-state statements such as `SET GLOBAL`: the parser refuses them, but a
+   `READ ONLY` transaction does not, so an account holding `SUPER` or
+   `SYSTEM_VARIABLES_ADMIN` is one parser bug away from changing the server. Do not point
+   mysqlpeek at `root`:
 
 ```sql
 CREATE USER 'readonly_user'@'%' IDENTIFIED BY '…';

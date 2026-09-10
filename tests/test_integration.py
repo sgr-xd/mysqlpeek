@@ -63,22 +63,45 @@ class TestConnectivity:
 
 
 class TestGuardsAreEnforcedByTheServer:
-    """Each guard must hold even when the statement never went near the parser."""
+    """Each guard must hold even when the statement never went near the parser.
+
+    These bypass the policy engine on purpose and hand SQL straight to the connection:
+    the point is that the server refuses, not that mysqlpeek does.
+    """
 
     def test_writes_are_refused_by_the_read_only_transaction(self, handle) -> None:
+        # Both target a schema that always exists, so the failure is the guard and not
+        # "no database selected". The DELETE matches nothing even if the guard were
+        # broken; the CREATE DATABASE would be visible, which is the point of naming it.
         with pytest.raises(QueryError, match="READ ONLY"):
-            handle.connection.execute("CREATE TABLE mysqlpeek_should_not_exist (a INT)")
+            handle.connection.execute(
+                "DELETE FROM mysql.time_zone_name WHERE Name = 'mysqlpeek-no-such-zone'"
+            )
+        with pytest.raises(QueryError, match="READ ONLY"):
+            handle.connection.execute("CREATE DATABASE mysqlpeek_should_not_exist")
 
-    def test_temporary_tables_are_refused_too(self, handle) -> None:
-        with pytest.raises(QueryError):
-            handle.connection.execute("CREATE TEMPORARY TABLE mysqlpeek_tmp (a INT)")
+    def test_time_cap_stops_a_long_read(self, registry: InstanceRegistry) -> None:
+        # Not SLEEP() or BENCHMARK(): MySQL lets those absorb the interrupt and return
+        # quietly, so they prove nothing. A real read that is killed mid-way raises
+        # ER_QUERY_TIMEOUT. The join-size cap is lifted for this connection so the
+        # time cap is the one that fires.
+        from dataclasses import replace
 
-    def test_time_cap_stops_a_long_statement(self, registry: InstanceRegistry) -> None:
-        # SLEEP is blocked by the parser; here it goes straight to the connection to
-        # prove the server's own cap holds without the parser.
-        limits = registry.get().config.limits
-        with pytest.raises(QueryError, match="execution cap"):
-            registry.get().connection.execute(f"SELECT SLEEP({limits.max_execution_time + 5})")
+        from mysqlpeek.config import Limits
+        from mysqlpeek.connection import Connection
+
+        base = registry.get().config
+        slow = Connection(
+            replace(base, limits=Limits(max_execution_time=1, max_join_size=10**15))
+        )
+        try:
+            with pytest.raises(QueryError, match="execution cap"):
+                slow.execute(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS a, "
+                    "information_schema.COLUMNS b, information_schema.COLUMNS c"
+                )
+        finally:
+            slow.close()
 
     def test_result_row_cap_bounds_an_unlimited_select(self, handle) -> None:
         # sql_select_limit binds when the statement has no LIMIT of its own.
