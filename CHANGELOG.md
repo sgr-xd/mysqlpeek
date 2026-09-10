@@ -8,10 +8,24 @@ keep the previous build.
 
 ## [Unreleased]
 
-Planned before 0.1.0: `validate_query`, `estimate_query_cost` and `explain_plan` on
-`EXPLAIN FORMAT=JSON`; `profile_column`; the ops tools (running queries, statement digests,
-replication status, lock waits, long transactions); the `mysql-query-craft` and
+Planned before 0.1.0: the ops tools (running queries, statement digests, replication
+status, lock waits, long transactions); the `mysql-query-craft` and
 `mysql-instance-health` skills.
+
+### Added
+
+- `validate_query`, `estimate_query_cost` and `explain_plan`, all on `EXPLAIN`, so a query
+  is costed before it runs. `estimate_query_cost` walks `EXPLAIN FORMAT=JSON` in both the
+  MySQL and MariaDB shapes, maps each alias back to its table for a share-of-table figure,
+  and reports `query_cost` where the engine provides one. `explain_plan` prefers
+  `FORMAT=TREE` and falls back to the classic table on MySQL 5.7 and MariaDB.
+- `profile_column`: nulls, distinct count, range and most common values over a bounded
+  sample, refusing an unknown column before scanning anything.
+- Live tests now run against MySQL 5.7, 8.4, 9.3 and MariaDB 11. Three findings from
+  them shaped the tests: `SLEEP()` and `BENCHMARK()` absorb the time-cap kill and return
+  quietly; MySQL 8 and MariaDB answer `COUNT(*)` over a cross join as a product of row
+  counts without touching a row; MySQL 5.7 estimates information_schema tables at two
+  rows, so the join-size cap never fires on them.
 
 ## [0.0.1]
 

@@ -17,12 +17,13 @@ counts:
 - **Several instances, one server.** A profiles file names your prod replica, staging and
   local boxes; every tool takes `instance=`, and every response says which one answered.
 
-Works with MySQL 5.7.8+, MySQL 8, MariaDB 10.1+, and the managed flavours that keep the
-standard session variables (RDS, Cloud SQL, Azure Database for MySQL).
+Works with MySQL 5.7.8+, MySQL 8 and 9, MariaDB 10.1+, and the managed flavours that keep
+the standard session variables (RDS, Cloud SQL, Azure Database for MySQL). MariaDB reports
+no `query_cost` and no tree-shaped plan; everything else behaves the same.
 
-> **Status: 0.0.x — under construction.** Discovery and guarded execution work today;
-> `estimate_query_cost`, `explain_plan`, `validate_query`, the ops tools and the skills are
-> landing next. Watch the [changelog](CHANGELOG.md).
+> **Status: 0.0.x — under construction.** Discovery, guarded execution and the cost tools
+> work today and are tested against MySQL 5.7, 8.4, 9.3 and MariaDB 11; the ops tools and
+> the skills are landing next. Watch the [changelog](CHANGELOG.md).
 
 ## Install
 
@@ -112,6 +113,15 @@ arguments leak through shell history and `ps`.
 |---|---|
 | `run_select_query` | Execute a `SELECT` under enforced caps; reports `rows_examined` and the optimiser's `query_cost` |
 | `sample_rows` | Preview rows from a table (SQL built server-side) |
+| `profile_column` | One column's nulls, distinct count, range and most common values, over a bounded sample |
+
+**Cost & validation** — these read no table data:
+
+| Tool | Purpose |
+|---|---|
+| `validate_query` | `EXPLAIN` — is the SQL legal, and do the names resolve? |
+| `estimate_query_cost` | `EXPLAIN FORMAT=JSON` — per table: access type, index chosen, rows it would examine, share of the table; a `full_scan` / `heavy` / `selective` verdict |
+| `explain_plan` | `EXPLAIN FORMAT=TREE` (MySQL 8.0.16+) or the classic table, plus whether every base table is reached through an index |
 
 Every response names the instance that answered and the SQL actually executed, so a
 rewritten `LIMIT` is visible rather than silent.

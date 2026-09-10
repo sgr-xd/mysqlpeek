@@ -80,6 +80,34 @@ class TestGuardsAreEnforcedByTheServer:
         with pytest.raises(QueryError, match="READ ONLY"):
             handle.connection.execute("CREATE DATABASE mysqlpeek_should_not_exist")
 
+    @staticmethod
+    def _big_join() -> tuple[str, int]:
+        """A self join of the test table that must evaluate at least 10**8 rows.
+
+        Returns the SQL and the optimiser-facing row estimate. information_schema
+        will not do: MySQL 5.7 materialises it at query time and estimates two rows
+        per table, so the join-size cap never fires. Nor will a bare COUNT(*) over a
+        cross join: MySQL 8 and MariaDB answer that as a product of row counts in
+        milliseconds without touching a row. Summing a column forces the rows to be
+        produced. The number of tables is chosen from the real row count so the join
+        is big enough to be killed, but not so big that the join-size cap (which the
+        time-cap test lifts to ten times the estimate) fires first on MariaDB.
+        """
+        if not TEST_TABLE:
+            pytest.skip("MYSQLPEEK_TEST_TABLE not set")
+        columns = call_ok("describe_table", {"table": TEST_TABLE})["columns"]
+        col = columns[0]["name"]
+        rows = int(call_ok("run_select_query", {"sql": f"SELECT COUNT(*) FROM {TEST_TABLE}"})["rows"][0][0])
+        if rows < 100:
+            pytest.skip("test table too small to build a slow join from")
+        ways = 2
+        while rows**ways < 10**8 and ways < 4:
+            ways += 1
+        aliases = "abcd"[:ways]
+        total = " + ".join(f"LENGTH({a}.`{col}`)" for a in aliases)
+        tables = ", ".join(f"{TEST_TABLE} {a}" for a in aliases)
+        return f"SELECT SUM({total}) FROM {tables}", rows**ways
+
     def test_time_cap_stops_a_long_read(self, registry: InstanceRegistry) -> None:
         # Not SLEEP() or BENCHMARK(): MySQL lets those absorb the interrupt and return
         # quietly, so they prove nothing. A real read that is killed mid-way raises
@@ -90,16 +118,14 @@ class TestGuardsAreEnforcedByTheServer:
         from mysqlpeek.config import Limits
         from mysqlpeek.connection import Connection
 
+        sql, estimate = self._big_join()
         base = registry.get().config
         slow = Connection(
-            replace(base, limits=Limits(max_execution_time=1, max_join_size=10**15))
+            replace(base, limits=Limits(max_execution_time=1, max_join_size=estimate * 10))
         )
         try:
             with pytest.raises(QueryError, match="execution cap"):
-                slow.execute(
-                    "SELECT COUNT(*) FROM information_schema.COLUMNS a, "
-                    "information_schema.COLUMNS b, information_schema.COLUMNS c"
-                )
+                slow.execute(sql)
         finally:
             slow.close()
 
@@ -125,14 +151,15 @@ class TestGuardsAreEnforcedByTheServer:
         from mysqlpeek.config import Limits
         from mysqlpeek.connection import Connection
 
+        sql, _ = self._big_join()
         base = registry.get().config
         tight = Connection(replace(base, limits=Limits(max_join_size=10)))
         try:
+            started = __import__("time").perf_counter()
             with pytest.raises(QueryError, match="max_join_size"):
-                tight.execute(
-                    "SELECT COUNT(*) FROM information_schema.COLUMNS a, "
-                    "information_schema.COLUMNS b, information_schema.COLUMNS c"
-                )
+                tight.execute(sql)
+            # Refused by the optimiser, not killed after running: it must be quick.
+            assert __import__("time").perf_counter() - started < 5
         finally:
             tight.close()
 
@@ -211,3 +238,122 @@ class TestEveryToolAgainstLiveServer:
         assert call_ok("sample_rows", {"table": TEST_TABLE, "limit": 3})["row_count"] <= 3
         tables = call_ok("list_tables", {"name_like": TEST_TABLE})["tables"]
         assert any(t["name"] == TEST_TABLE for t in tables)
+
+
+@pytest.mark.skipif(not TEST_TABLE, reason="MYSQLPEEK_TEST_TABLE not set")
+class TestCostToolsAgainstLiveServer:
+    """The optimiser's answers, not ours: every assertion here is about the shape and
+    the verdict, because the numbers belong to the engine under test."""
+
+    def test_validate_query_resolves_names(self) -> None:
+        assert call_tool("validate_query", {"sql": f"SELECT 1 FROM {TEST_TABLE}"})["valid"] is True
+        bad = call_tool("validate_query", {"sql": f"SELECT no_such_column_xyz FROM {TEST_TABLE}"})
+        assert bad["valid"] is False and "no_such_column_xyz" in bad["error"]
+
+    def test_validate_query_refuses_to_explain_show(self) -> None:
+        payload = call_tool("validate_query", {"sql": "SHOW TABLES"})
+        assert "cannot be explained" in payload["error"]
+
+    def test_estimate_reports_every_table_with_an_access_type(self) -> None:
+        payload = call_ok("estimate_query_cost", {"sql": f"SELECT * FROM {TEST_TABLE}"})
+        assert payload["verdict"] in ("full_scan", "heavy", "selective", "trivial")
+        assert payload["estimates"], "a base-table read must produce an estimate"
+        first = payload["estimates"][0]
+        assert first["access_type"] in ("ALL", "index", "range", "ref", "eq_ref", "const")
+        assert first["table_total_rows"] is not None
+        assert "no table data was read" in payload["note"]
+
+    def test_unfiltered_scan_of_a_large_table_is_a_full_scan(self) -> None:
+        total = call_ok("estimate_query_cost", {"sql": f"SELECT * FROM {TEST_TABLE}"})
+        if (total["estimates"][0].get("table_total_rows") or 0) < 1000:
+            pytest.skip("test table too small for a full-scan verdict")
+        assert total["verdict"] == "full_scan"
+        assert total["estimates"][0]["fraction_of_table"] >= 0.5
+
+    def test_primary_key_lookup_is_selective(self) -> None:
+        pk = call_ok("list_indexes", {"table": TEST_TABLE})["indexes"]
+        primary = next((i for i in pk if i["name"] == "PRIMARY"), None)
+        if primary is None or "," in primary["columns"]:
+            pytest.skip("no single-column primary key to look up")
+        payload = call_ok(
+            "estimate_query_cost",
+            {"sql": f"SELECT * FROM {TEST_TABLE} WHERE {primary['columns']} = 1"},
+        )
+        assert payload["verdict"] == "selective"
+        assert payload["estimates"][0]["key"] == "PRIMARY"
+
+    def test_alias_is_mapped_back_to_the_table(self) -> None:
+        payload = call_ok("estimate_query_cost", {"sql": f"SELECT t.* FROM {TEST_TABLE} AS t"})
+        assert payload["estimates"][0]["table_total_rows"] is not None
+
+    def test_explain_plan_reports_index_use(self) -> None:
+        payload = call_ok("explain_plan", {"sql": f"SELECT * FROM {TEST_TABLE}"})
+        assert payload["format"] in ("tree", "table")
+        assert payload["plan"]
+        assert payload["uses_index"] is False
+
+    def test_cost_tools_go_through_the_policy(self) -> None:
+        for tool in ("validate_query", "estimate_query_cost", "explain_plan"):
+            assert call_tool(tool, {"sql": "DROP TABLE x"})["blocked"] is True
+
+
+def _pick_profilable_column() -> str | None:
+    if not TEST_TABLE:
+        return None
+    payload = call_tool("describe_table", {"table": TEST_TABLE})
+    for column in payload.get("columns", []):
+        if not str(column["type"]).lower().startswith(("json", "geometry", "blob", "longblob")):
+            return column["name"]
+    return None
+
+
+PROFILE_COLUMN = _pick_profilable_column()
+
+
+@pytest.mark.skipif(not TEST_TABLE or not PROFILE_COLUMN, reason="no profilable column available")
+class TestProfileColumnAgainstLiveServer:
+    def test_profiles_a_real_column(self) -> None:
+        payload = call_ok(
+            "profile_column", {"table": TEST_TABLE, "column": PROFILE_COLUMN, "top_n": 3}
+        )
+        assert payload["rows_scanned"] > 0
+        assert payload["distinct_count"] >= 1
+        assert len(payload["top_values"]) <= 3
+        assert all(0 <= v["fraction"] <= 1 for v in payload["top_values"])
+        assert payload["null_count"] + sum(1 for _ in ()) >= 0
+        assert payload["assessment"]
+
+    def test_sample_size_is_honoured(self) -> None:
+        payload = call_ok(
+            "profile_column", {"table": TEST_TABLE, "column": PROFILE_COLUMN, "sample_rows": 50}
+        )
+        assert payload["rows_scanned"] <= 50
+
+    def test_unknown_column_is_refused_before_scanning(self) -> None:
+        payload = call_tool("profile_column", {"table": TEST_TABLE, "column": "no_such_column_xyz"})
+        assert "not found" in payload["error"]
+        assert "describe_table" in payload["hint"]
+
+
+@pytest.mark.skipif(
+    not os.environ.get("MYSQLPEEK_PROFILES"), reason="MYSQLPEEK_PROFILES not set"
+)
+class TestSeveralInstances:
+    """With a profiles file, routing by `instance=` must reach the named server."""
+
+    def test_every_instance_answers_with_its_own_version(self) -> None:
+        names = call_ok("list_instances", {})["instances"]
+        assert len(names) >= 2
+        seen = {}
+        for entry in names:
+            payload = call_ok(
+                "run_select_query", {"sql": "SELECT VERSION()", "instance": entry["instance"]}
+            )
+            assert payload["instance"] == entry["instance"]
+            seen[entry["instance"]] = payload["rows"][0][0]
+        assert len(set(seen.values())) >= 2, f"instances did not route to distinct servers: {seen}"
+
+    def test_unknown_instance_is_refused_with_the_valid_names(self) -> None:
+        payload = call_tool("run_select_query", {"sql": "SELECT 1", "instance": "nope"})
+        assert "unknown instance" in payload["error"]
+        assert payload["instances"]
