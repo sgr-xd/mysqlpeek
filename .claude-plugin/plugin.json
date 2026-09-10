@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "mysqlpeek",
+  "displayName": "mysqlpeek (MySQL / MariaDB, read-only)",
+  "version": "0.0.1",
+  "description": "Read-only MySQL and MariaDB access for one or many instances. Explore schemas, cost a query with EXPLAIN before running it, and pick the instance per call. Writes are refused by the database engine itself, not only by a parser.",
+  "author": {
+    "name": "sgr-xd"
+  },
+  "homepage": "https://github.com/sgr-xd/mysqlpeek",
+  "repository": "https://github.com/sgr-xd/mysqlpeek",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mysql",
+    "mariadb",
+    "database",
+    "mcp",
+    "sql",
+    "read-only"
+  ],
+  "mcpServers": "./mcp.json",
+  "userConfig": {
+    "MYSQL_HOST": {
+      "type": "string",
+      "title": "Server",
+      "description": "db.internal, host:port, or mysql://host:3306 (mysqls:// for TLS). Port defaults to 3306. Leave empty if you use a profiles file instead."
+    },
+    "MYSQL_USER": {
+      "type": "string",
+      "title": "Username",
+      "description": "Use an account granted only SELECT (plus PROCESS and REPLICATION CLIENT for the ops tools). The grant is the layer that can actually enforce read-only.",
+      "default": "root"
+    },
+    "MYSQL_PASSWORD": {
+      "type": "string",
+      "title": "Password",
+      "description": "Stored in your system keychain, never in a settings file. Preserved across plugin updates.",
+      "sensitive": true
+    },
+    "MYSQL_DATABASE": {
+      "type": "string",
+      "title": "Database (optional)",
+      "description": "Used when a tool call does not name one. Leave empty to require every call to say."
+    },
+    "MYSQLPEEK_PROFILES": {
+      "type": "file",
+      "title": "Profiles file (optional, for several instances)",
+      "description": "Path to a JSON file describing one or more instances. Takes precedence over the fields above. Use it when you have more than one server, or when credentials come from a secret manager: the file holds ${env:...}, ${file:...} or ${cmd:...} references rather than values, so it is safe to commit."
+    }
+  }
+}

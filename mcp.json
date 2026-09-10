@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mysqlpeek": {
+      "command": "uvx",
+      "args": ["--from", "${CLAUDE_PLUGIN_ROOT}", "mysqlpeek"],
+      "env": {
+        "MYSQL_HOST": "${user_config.MYSQL_HOST}",
+        "MYSQL_USER": "${user_config.MYSQL_USER}",
+        "MYSQL_PASSWORD": "${user_config.MYSQL_PASSWORD}",
+        "MYSQL_DATABASE": "${user_config.MYSQL_DATABASE}",
+        "MYSQLPEEK_PROFILES": "${user_config.MYSQLPEEK_PROFILES}"
+      }
+    }
+  }
+}

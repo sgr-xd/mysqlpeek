@@ -1,0 +1,24 @@
+{
+  "name": "mysqlpeek",
+  "description": "Read-only MySQL / MariaDB tooling for Claude Code",
+  "owner": {
+    "name": "sgr-xd",
+    "url": "https://github.com/sgr-xd"
+  },
+  "plugins": [
+    {
+      "name": "mysqlpeek",
+      "description": "Read-only MySQL and MariaDB access for one or many instances: explore schemas, cost a query with EXPLAIN before running it, pick the instance per call. Writes are refused by the engine, not only by a parser.",
+      "source": "./",
+      "version": "0.0.1",
+      "category": "database",
+      "tags": [
+        "mysql",
+        "mariadb",
+        "sql",
+        "database",
+        "read-only"
+      ]
+    }
+  ]
+}

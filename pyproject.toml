@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mysqlpeek"
+version = "0.0.1"
+description = "A read-only MySQL/MariaDB MCP server for one or many instances: explore schema, cost a query with EXPLAIN before running it, and never write."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "sgr-xd" }]
+keywords = ["mysql", "mariadb", "mcp", "model-context-protocol", "sql", "read-only"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+]
+
+dependencies = [
+    # Official MCP SDK. Ships FastMCP as mcp.server.fastmcp, so no separate
+    # framework dependency is needed.
+    "mcp>=2.0",
+    # Pure-Python MySQL driver: no compiled extension, so `uvx mysqlpeek` works on
+    # any box with a Python. cryptography is what it needs for caching_sha2_password
+    # (the MySQL 8 default) when the connection is not over TLS.
+    "pymysql>=1.1",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/sgr-xd/mysqlpeek"
+Issues = "https://github.com/sgr-xd/mysqlpeek/issues"
+
+[project.scripts]
+mysqlpeek = "mysqlpeek.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mysqlpeek*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that hit a real MySQL or MariaDB (read-only). Deselect with -m 'not integration'.",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# Bugs, not style. F821 (undefined name) is the one that actually catches shipped defects.
+select = ["F", "E9", "B", "T20", "I"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+# These two print to stderr on purpose: stdout is the MCP transport, so a startup
+# failure and an unwritable audit log have nowhere else to go.
+"src/mysqlpeek/__main__.py" = ["T20"]
+"src/mysqlpeek/audit.py" = ["T20"]
