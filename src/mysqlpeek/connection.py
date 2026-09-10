@@ -305,7 +305,12 @@ def _jsonable(value: Any) -> Any:
         except UnicodeDecodeError:
             return "0x" + bytes(value).hex()
     if isinstance(value, decimal.Decimal):
-        return str(value)
+        # Integral decimals (SUM of BIGINT columns, COUNT over a subquery) are ints; the
+        # rest become floats. A float can lose precision past 15 digits, which is the
+        # trade for a number the caller can compute with rather than a string.
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
     if isinstance(value, (dt.datetime, dt.date, dt.time)):
         return value.isoformat()
     if isinstance(value, dt.timedelta):

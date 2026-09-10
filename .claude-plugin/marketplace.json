@@ -10,7 +10,7 @@
       "name": "mysqlpeek",
       "description": "Read-only MySQL and MariaDB access for one or many instances: explore schemas, cost a query with EXPLAIN before running it, pick the instance per call. Writes are refused by the engine, not only by a parser.",
       "source": "./",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "category": "database",
       "tags": [
         "mysql",

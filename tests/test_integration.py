@@ -223,9 +223,9 @@ class TestEveryToolAgainstLiveServer:
         payload = call_tool("run_select_query", {"sql": "DROP TABLE users"})
         assert payload["blocked"] is True
 
-    def test_missing_database_is_a_question_not_a_guess(self) -> None:
+    def test_missing_database_is_a_question_not_a_guess(self, registry) -> None:
         payload = call_tool("list_tables", {})
-        if os.environ.get("MYSQL_DATABASE"):
+        if registry.get().config.database:
             assert "tables" in payload
         else:
             assert "database" in payload["error"]
@@ -357,3 +357,57 @@ class TestSeveralInstances:
         payload = call_tool("run_select_query", {"sql": "SELECT 1", "instance": "nope"})
         assert "unknown instance" in payload["error"]
         assert payload["instances"]
+
+
+class TestOpsToolsAgainstLiveServer:
+    """Operational tools, called the way a client calls them.
+
+    Their SQL is the part that breaks: a column that does not exist on this server
+    version is invisible until the statement reaches the engine.
+    """
+
+    def test_list_running_queries_sees_at_least_itself_or_says_why(self) -> None:
+        payload = call_ok("list_running_queries", {})
+        assert "running" in payload
+        assert isinstance(payload["sees_all_sessions"], bool)
+
+    def test_top_statements_or_a_clear_reason(self) -> None:
+        payload = call_tool("top_statements", {"limit": 5})
+        if "error" in payload:
+            assert "performance_schema" in payload.get("hint", "")
+            return
+        assert payload["count"] <= 5
+        if payload["statements"]:
+            first = payload["statements"][0]
+            assert {"statement", "executions", "total_s", "rows_examined"}.issubset(first)
+
+    def test_top_statements_rejects_a_bad_order(self) -> None:
+        assert "order_by" in call_tool("top_statements", {"order_by": "nope"})["error"]
+
+    def test_table_storage_stats(self) -> None:
+        payload = call_ok("table_storage_stats", {"limit": 5})
+        assert payload["count"] <= 5
+        for t in payload["tables"]:
+            assert isinstance(t["total_bytes"], int)
+            assert t["size"]
+
+    def test_replication_status_reports_flags(self) -> None:
+        payload = call_ok("replication_status", {})
+        assert payload["read_only"] in (True, False)
+        assert payload["is_replica"] in (True, False)
+        assert payload["assessment"]
+
+    def test_lock_waits_is_empty_on_a_quiet_server(self) -> None:
+        payload = call_ok("lock_waits", {})
+        assert payload["source"].endswith(("innodb_lock_waits", "INNODB_LOCK_WAITS"))
+        assert "waits" in payload
+
+    def test_long_transactions(self) -> None:
+        payload = call_ok("long_transactions", {"min_seconds": 0})
+        assert "transactions" in payload and payload["assessment"]
+
+    def test_server_health(self) -> None:
+        payload = call_ok("server_health", {})
+        assert payload["uptime_s"] > 0
+        assert payload["connections"]["max_connections"]
+        assert payload["assessment"]

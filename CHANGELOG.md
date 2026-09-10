@@ -6,13 +6,22 @@ The version must be bumped for **any** shipped change, including documentation â
 plugin cache is keyed by version, so an unchanged version means installed copies silently
 keep the previous build.
 
-## [Unreleased]
+## [0.1.0]
 
-Planned before 0.1.0: the ops tools (running queries, statement digests, replication
-status, lock waits, long transactions); the `mysql-query-craft` and
-`mysql-instance-health` skills.
+First release. Twenty read-only tools, two skills, tested live against MySQL 5.7, 8.4,
+9.3 and MariaDB 11.
 
 ### Added
+
+- Seven operational tools: `list_running_queries`, `top_statements` (performance_schema
+  digests with an examined-per-row-sent ratio), `table_storage_stats` (fragmentation,
+  index-to-data, auto-increment headroom), `replication_status` (either column spelling,
+  8.0.22 renamed them), `lock_waits` (sys view with an information_schema fallback for
+  MySQL 5.7 and MariaDB without sys), `long_transactions` and `server_health`.
+- `mysql-query-craft` and `mysql-instance-health` skills.
+- DECIMAL values are returned as numbers: integral ones as ints, the rest as floats.
+  A SUM over BIGINT columns arrives as DECIMAL from the driver and was coming back as a
+  string, which broke arithmetic on it.
 
 - `validate_query`, `estimate_query_cost` and `explain_plan`, all on `EXPLAIN`, so a query
   is costed before it runs. `estimate_query_cost` walks `EXPLAIN FORMAT=JSON` in both the

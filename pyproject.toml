@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mysqlpeek"
-version = "0.0.1"
+version = "0.1.0"
 description = "A read-only MySQL/MariaDB MCP server for one or many instances: explore schema, cost a query with EXPLAIN before running it, and never write."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "sgr-xd" }]
 keywords = ["mysql", "mariadb", "mcp", "model-context-protocol", "sql", "read-only"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",

@@ -21,10 +21,6 @@ Works with MySQL 5.7.8+, MySQL 8 and 9, MariaDB 10.1+, and the managed flavours 
 the standard session variables (RDS, Cloud SQL, Azure Database for MySQL). MariaDB reports
 no `query_cost` and no tree-shaped plan; everything else behaves the same.
 
-> **Status: 0.0.x — under construction.** Discovery, guarded execution and the cost tools
-> work today and are tested against MySQL 5.7, 8.4, 9.3 and MariaDB 11; the ops tools and
-> the skills are landing next. Watch the [changelog](CHANGELOG.md).
-
 ## Install
 
 ### As a Claude Code plugin (recommended)
@@ -44,6 +40,12 @@ Claude Code then asks for four things:
 | **Database** | optional — leave empty and every call names its own |
 
 Port and TLS come from whatever you put in Server, so there is nothing else to set.
+
+This also installs two skills: `mysql-query-craft`, which teaches the
+explore → estimate → run discipline the tools are built around, and
+`mysql-instance-health`, a one-shot sweep of replication, lock waits, long transactions,
+connections, buffer pool, temp tables and top statements that reports whether the
+instance is healthy right now.
 
 ### As a standalone MCP server
 
@@ -114,6 +116,18 @@ arguments leak through shell history and `ps`.
 | `run_select_query` | Execute a `SELECT` under enforced caps; reports `rows_examined` and the optimiser's `query_cost` |
 | `sample_rows` | Preview rows from a table (SQL built server-side) |
 | `profile_column` | One column's nulls, distinct count, range and most common values, over a bounded sample |
+
+**Operations** — what the server is doing, and whether it is keeping up:
+
+| Tool | Purpose |
+|---|---|
+| `list_running_queries` | Statements executing now, longest first (needs PROCESS to see other sessions) |
+| `top_statements` | Statement digests from performance_schema ranked by time, count, rows examined or missing index |
+| `table_storage_stats` | Tables by size with fragmentation, index-to-data ratio and auto-increment headroom |
+| `replication_status` | Replica threads, lag, last error, `read_only` / `super_read_only` |
+| `lock_waits` | Sessions blocked on row locks and who blocks them |
+| `long_transactions` | Transactions open longer than N seconds, idle-in-transaction included |
+| `server_health` | Connections, buffer pool hit rate, temp tables on disk, lock waits, history list |
 
 **Cost & validation** — these read no table data:
 
